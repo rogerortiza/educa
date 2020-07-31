@@ -1,13 +1,16 @@
+from braces.views import CsrfExemptMixin, JSONRequestResponseMixin
 from django.apps import apps
+from django.db.models import Count
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.forms.models import modelform_factory
-from django.views.generic.base import TemplateResponseMixin, View
 from django.shortcuts import redirect, get_object_or_404
 from django.urls import reverse_lazy
-from django.views.generic.list import ListView
+from django.views.generic.base import TemplateResponseMixin, View
 from django.views.generic.edit import CreateView, UpdateView, DeleteView
+from django.views.generic.detail import DetailView
+from django.views.generic.list import ListView
 from .forms import ModuleFormSet
-from .models import Course, Content, Module
+from .models import Course, Content, Module, Subject
 
 
 class OwnerMixin(object):
@@ -99,13 +102,10 @@ class ContentCreateUpdateView(TemplateResponseMixin, View):
         return Form(*args, **kwargs)
 
     def dispatch(self, request, module_id, model_name, id=None):
-        self.module = get_object_or_404(Module,
-                                       id=module_id,
-                                       course__owner=request.user)
+        self.module = get_object_or_404(Module, id=module_id, course__owner=request.user)
         self.model = self.get_model(model_name)
         if id:
-            self.obj = get_object_or_404(self.model,
-                                         id=id,
+            self.obj = get_object_or_404(self.model, id=id,
                                          owner=request.user)
         return super().dispatch(request, module_id, model_name, id)
 
@@ -131,3 +131,54 @@ class ContentCreateUpdateView(TemplateResponseMixin, View):
 
         return self.render_to_response({'form': form,
                                         'object': self.obj})
+
+
+class ContentDeleteView(View):
+    def post(self, request, id):
+        content = get_object_or_404(Content, id=id,
+                                    module__course__owner=request.user)
+        module = content.module
+        content.item.delete()
+        content.delete()
+        return redirect('module_content_list', module.id)
+
+
+class ModuleContentListView(TemplateResponseMixin, View):
+    template_name = 'courses/manage/module/content_list.html'
+
+    def get(self, request, module_id):
+        module = get_object_or_404(Module, id=module_id,
+                                   course__owner=request.user)
+        return self.render_to_response({'module': module})
+
+
+class ModuleOrderView(CsrfExemptMixin, JSONRequestResponseMixin, View):
+    def post(self, request):
+        for id, order in self.request_json.items():
+            Module.objects.filter(id=id, course__owner=request.user)\
+                .update(order=order)
+        return self.render_json_response({'saved': 'OK'})
+
+
+class ContentOrderView(CsrfExemptMixin, JSONRequestResponseMixin, View):
+    def post(self, request):
+        for id, order in self.request_json.items():
+            Content.objects.filter(id=id, module__course__owner=request.user)\
+                .update(order=order)
+        return self.render_json_response({'saved': 'OK'})
+
+
+class CourseListView(TemplateResponseMixin, View):
+    model = Course
+    template_name = 'courses/course/list.html'
+
+    def get(self, request, subject=None):
+        subjects = Subject.objects.annotate(total_courses=Count('courses'))
+        courses = Course.objects.annotate(total_modules=Count('modules'))
+
+        if subject:
+            subject = get_object_or_404(Subject, slug=subject)
+            courses = courses.filter(subject=subject)
+
+        return self.render_to_response({'subjects': subjects, 'subject': subject,
+                                        'courses': courses})
