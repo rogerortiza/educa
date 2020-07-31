@@ -15,4 +15,6 @@ urlpatterns = [
     path('content/<int:id>/delete/', ContentDeleteView.as_view(), name='module_content_delete'),
     path('module/order/', ModuleOrderView.as_view(), name='module_order'),
     path('content/order/', ContentOrderView.as_view(), name='content_order'),
+    path('subject/<slug:subject>/', CourseListView.as_view(), name='course_list_subject'),
+    path('<slug:slug>/', CourseDetailView.as_view(), name='course_detail'),
 ]
